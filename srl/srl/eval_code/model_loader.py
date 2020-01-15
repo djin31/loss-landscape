@@ -58,8 +58,40 @@ from helper import get_viterbi_pairwise_potentials, decode
 
 def load_model(archive_dir, weight_file, gpu_device):
     weight_file = os.path.join(archive_dir, weight_file)
-    archive = load_archive(archive_dir, cuda_device=gpu_device, weights_file=weight_file)
+    archive = load_archive(archive_dir, cuda_device=-1, weights_file=weight_file)
     model = archive.model
 
     model.eval()
     return model
+
+def load_dataset(model, archive_dir, weight_file, batch_size, valid_data=False):
+    config_file = os.path.join(archive_dir, "config_loss.json")
+    params = Params.from_file(config_file)
+
+    # Is this required??
+    # params = archive.config 
+
+    label_encoding="BIO"
+    try:
+            label_encoding = params["dataset_reader"]["label_encoding"]
+    except:
+            pass    
+
+    print("Label encoding!", label_encoding)
+
+    validation_iterator_params = params["iterator"]
+    # validation_iterator = DataIterator.from_params(validation_iterator_params)
+    validation_iterator = BucketIterator(batch_size=batch_size, sorting_keys=[("tokens", "num_tokens")])
+    validation_iterator.index_with(model.vocab)
+
+    dataset_name = 'train_data_path'
+    if(valid_data):
+            dataset_name = 'validation_data_path'
+
+    print(f"Dataset: {dataset_name}")
+
+    validation_and_test_dataset_reader = DatasetReader.from_params(params['dataset_reader'])
+    validation_data_path = params[dataset_name]
+    validation_data = validation_and_test_dataset_reader.read(validation_data_path)
+
+    return validation_data, validation_iterator

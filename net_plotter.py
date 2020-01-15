@@ -14,7 +14,7 @@ import model_loader
 ################################################################################
 def get_weights(net):
     """ Extract parameters from net, and return a list of tensors"""
-    return [p.data for p in net.parameters()]
+    return [p.data for p in net.encoder.parameters()]
 
 
 def set_weights(net, weights, directions=None, step=None):
@@ -24,7 +24,7 @@ def set_weights(net, weights, directions=None, step=None):
     """
     if directions is None:
         # You cannot specify a step length without a direction.
-        for (p, w) in zip(net.parameters(), weights):
+        for (p, w) in zip(net.encoder.parameters(), weights):
             p.data.copy_(w.type(type(p.data)))
     else:
         assert step is not None, 'If a direction is specified then step must be specified as well'
@@ -36,7 +36,7 @@ def set_weights(net, weights, directions=None, step=None):
         else:
             changes = [d*step for d in directions[0]]
 
-        for (p, w, d) in zip(net.parameters(), weights, changes):
+        for (p, w, d) in zip(net.encoder.parameters(), weights, changes):
             p.data = w + torch.Tensor(d).type(type(w))
 
 

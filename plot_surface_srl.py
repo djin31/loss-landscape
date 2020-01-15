@@ -15,7 +15,7 @@ import numpy as np
 import torchvision
 import torch.nn as nn
 import dataloader
-import evaluation
+import evaluation_srl
 import projection as proj
 import net_plotter
 import plot_2D
@@ -23,6 +23,11 @@ import plot_1D
 import model_loader
 import scheduler
 import mpi4pytorch as mpi
+
+
+import sys
+sys.path.append("srl/srl/code")
+from srl.srl.eval_code.model_loader import load_model, load_dataset
 
 def name_surface_file(args, dir_file):
     # skip if surf_file is specified in args
@@ -70,7 +75,7 @@ def setup_surface_file(args, surf_file, dir_file):
     return surf_file
 
 
-def crunch(surf_file, net, w, s, d, dataloader, loss_key, acc_key, comm, rank, args):
+def crunch(surf_file, net, w, s, d, dataloader, loss_key, acc_key, comm, rank, args, gpu_device):
     """
         Calculate the loss values and accuracies of modified models in parallel
         using MPI reduce.
@@ -118,7 +123,7 @@ def crunch(surf_file, net, w, s, d, dataloader, loss_key, acc_key, comm, rank, a
 
         # Record the time to compute the loss value
         loss_start = time.time()
-        loss, acc = evaluation.eval_loss(net, criterion, dataloader, args.cuda)
+        loss, acc = evaluation_srl.eval_loss(net, dataloader, args.cuda, gpu_device)
         loss_compute_time = time.time() - loss_start
 
         # Record the result in the local array
@@ -162,7 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('--cuda', '-c', action='store_true', help='use cuda')
     parser.add_argument('--threads', default=2, type=int, help='number of threads')
     parser.add_argument('--ngpu', type=int, default=1, help='number of GPUs to use for each rank, useful for data parallel evaluation')
-    parser.add_argument('--batch_size', default=128, type=int, help='minibatch size')
+    parser.add_argument('--batch_size', default=64, type=int, help='minibatch size')
 
     # data parameters
     parser.add_argument('--dataset', default='cifar10', help='cifar10 | imagenet')
@@ -180,6 +185,8 @@ if __name__ == '__main__':
     parser.add_argument('--model_file2', default='', help='use (model_file2 - model_file) as the xdirection')
     parser.add_argument('--model_file3', default='', help='use (model_file3 - model_file) as the ydirection')
     parser.add_argument('--loss_name', '-l', default='crossentropy', help='loss functions: crossentropy | mse')
+    parser.add_argument('--archive_dir', default='', help='archive directory')
+    parser.add_argument('--weight_file', default='', help='weight directory')
 
     # direction parameters
     parser.add_argument('--dir_file', default='', help='specify the name of direction file, or the path to an eisting direction file')
@@ -242,7 +249,7 @@ if __name__ == '__main__':
     #--------------------------------------------------------------------------
     # Load models and extract parameters
     #--------------------------------------------------------------------------
-    net = model_loader.load(args.dataset, args.model, args.model_file)
+    net = load_model(args.archive_dir, args.weight_file, gpu_device)
     w = net_plotter.get_weights(net) # initial parameters
     s = copy.deepcopy(net.state_dict()) # deepcopy since state_dict are references
     if args.ngpu > 1:
@@ -273,21 +280,14 @@ if __name__ == '__main__':
     #--------------------------------------------------------------------------
     # Setup dataloader
     #--------------------------------------------------------------------------
-    # download CIFAR10 if it does not exit
-    if rank == 0 and args.dataset == 'cifar10':
-        torchvision.datasets.CIFAR10(root=args.dataset + '/data', train=True, download=True)
-
     mpi.barrier(comm)
 
-    trainloader, testloader = dataloader.load_dataset(args.dataset, args.datapath,
-                                args.batch_size, args.threads, args.raw_data,
-                                args.data_split, args.split_idx,
-                                args.trainloader, args.testloader)
+    dataloader = load_dataset(net, args.archive_dir, args.weight_file, 128)
 
     #--------------------------------------------------------------------------
     # Start the computation
     #--------------------------------------------------------------------------
-    crunch(surf_file, net, w, s, d, trainloader, 'train_loss', 'train_acc', comm, rank, args)
+    crunch(surf_file, net, w, s, d, dataloader, 'train_loss', 'train_acc', comm, rank, args,gpu_device)
     print("Computation finished for "+str(rank)+"\n")
     # crunch(surf_file, net, w, s, d, testloader, 'test_loss', 'test_acc', comm, rank, args)
 
